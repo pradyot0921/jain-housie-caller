@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jain Word Housie | Caller</title>
-  <meta name="description" content="Caller board for Jain Word Housie. Draw words at random, strike them off the board and check tickets.">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Jain Word Housie | Host</title>
+  <meta name="description" content="Host Jain Word Housie: draw words, verify prize claims, track winners, review call history and print tickets.">
   <meta name="theme-color" content="#fafaf8">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="app.webmanifest">
   <link rel="preload" href="assets/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/tiro-devanagari-hindi.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/mukta-semibold.woff2" as="font" type="font/woff2" crossorigin>
@@ -14,22 +15,25 @@
 </head>
 <body>
   <div class="ribbon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="sr-only" id="announce" aria-live="polite" aria-atomic="true"></div>
 
-  <header class="top">
+  <header class="top" id="pageHeader">
     <div class="brand">
       <svg class="emblem" viewBox="0 0 40 40" aria-hidden="true">
         <circle cx="20" cy="20" r="18"/><circle cx="20" cy="20" r="12.5"/><circle cx="20" cy="20" r="7"/><circle class="core" cx="20" cy="20" r="2.2"/>
       </svg>
       <div>
         <h1>Jain Word Housie</h1>
-        <p>Caller</p>
+        <p>Host console</p>
       </div>
     </div>
     <nav class="actions" aria-label="Game actions">
       <button class="btn" id="checkBtn" type="button">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/><path d="M9 6v12" stroke-dasharray="2 2"/></svg>
-        Check a ticket
+        Check claim
       </button>
+      <button class="btn" id="historyBtn" type="button">History</button>
+      <button class="btn" id="toolsBtn" type="button">Host tools</button>
       <button class="btn" id="newBtn" type="button">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
         New game
@@ -37,7 +41,11 @@
     </nav>
   </header>
 
-  <main class="layout">
+  <div class="fatal" id="dataError" hidden role="alert">
+    Ticket data failed validation. Drawing is disabled until the data file is fixed.
+  </div>
+
+  <main class="layout" id="pageMain">
     <section class="stage" aria-label="Caller">
       <div class="rings" id="rings">
         <svg viewBox="0 0 340 340" aria-hidden="true">
@@ -47,7 +55,7 @@
           <circle class="pulse" id="pulse" cx="170" cy="170" r="122"/>
         </svg>
         <div class="word-wrap">
-          <div class="current idle" id="current" aria-live="polite">Press draw to call the first word</div>
+          <div class="current idle" id="current">Press draw to call the first word</div>
           <p class="count" id="countText">0 of 90 called</p>
         </div>
       </div>
@@ -61,9 +69,20 @@
       </div>
 
       <div class="recent">
-        <h2>Previously called</h2>
+        <div class="section-line">
+          <h2>Previously called</h2>
+          <button class="text-btn" id="historyInlineBtn" type="button">View all</button>
+        </div>
         <ol id="recent"></ol>
       </div>
+
+      <section class="winners-mini" aria-labelledby="winnersMiniTitle">
+        <div class="section-line">
+          <h2 id="winnersMiniTitle">Winners</h2>
+          <button class="text-btn" id="winnersBtn" type="button">View ledger</button>
+        </div>
+        <div id="winnersMini" class="empty-note">No prizes awarded yet</div>
+      </section>
     </section>
 
     <section class="panel" aria-labelledby="boardTitle">
@@ -79,7 +98,26 @@
     </section>
   </main>
 
-  <div class="overlay" id="newDlg" role="dialog" aria-modal="true" aria-labelledby="newTitle">
+  <div class="mobile-callbar" id="mobileBar" aria-label="Mobile caller controls">
+    <div>
+      <span class="mobile-label">Current</span>
+      <strong id="mobileCurrent">Not started</strong>
+    </div>
+    <button id="mobileDrawBtn" type="button">Draw</button>
+  </div>
+
+  <div class="overlay" id="resumeDlg" role="dialog" aria-modal="true" aria-labelledby="resumeTitle" aria-hidden="true">
+    <div class="dialog dialog-sm">
+      <h2 id="resumeTitle">Previous game found</h2>
+      <p id="resumeMsg"></p>
+      <div class="dialog-actions">
+        <button class="btn" id="resumeGame" type="button">Resume game</button>
+        <button class="btn btn-danger" id="freshGame" type="button">Start new game</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="newDlg" role="dialog" aria-modal="true" aria-labelledby="newTitle" aria-hidden="true">
     <div class="dialog dialog-sm">
       <h2 id="newTitle">Start a new game?</h2>
       <p id="newMsg"></p>
@@ -90,13 +128,14 @@
     </div>
   </div>
 
-  <div class="overlay" id="checkDlg" role="dialog" aria-modal="true" aria-labelledby="checkTitle">
+  <div class="overlay" id="checkDlg" role="dialog" aria-modal="true" aria-labelledby="checkTitle" aria-hidden="true">
     <div class="dialog">
-      <h2 id="checkTitle">Check a ticket</h2>
-      <div class="check-form">
-        <label for="ticketNo">Ticket number</label>
-        <input id="ticketNo" type="number" min="1" max="40" inputmode="numeric" autocomplete="off" placeholder="1 to 40">
-        <button class="btn" id="showTicket" type="button">Show ticket</button>
+      <h2 id="checkTitle">Verify a prize claim</h2>
+      <p class="dialog-intro">Choose the ticket and claimed prize. The result is calculated from the exact call order.</p>
+      <div class="claim-form">
+        <label>Ticket number<input id="ticketNo" type="number" min="1" max="40" inputmode="numeric" autocomplete="off" placeholder="1 to 40"></label>
+        <label>Prize<select id="prizeType"></select></label>
+        <button class="btn btn-primary" id="verifyClaim" type="button">Verify claim</button>
       </div>
       <div id="ticketOut"></div>
       <div class="dialog-actions">
@@ -104,6 +143,44 @@
       </div>
     </div>
   </div>
+
+  <div class="overlay" id="historyDlg" role="dialog" aria-modal="true" aria-labelledby="historyTitle" aria-hidden="true">
+    <div class="dialog dialog-mid">
+      <h2 id="historyTitle">Call history</h2>
+      <p class="dialog-intro" id="historySummary"></p>
+      <ol class="history-list" id="historyList"></ol>
+      <div class="dialog-actions">
+        <button class="btn" type="button" data-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="winnersDlg" role="dialog" aria-modal="true" aria-labelledby="winnersTitle" aria-hidden="true">
+    <div class="dialog dialog-mid">
+      <h2 id="winnersTitle">Winner ledger</h2>
+      <p class="dialog-intro">Awards are stored with this game on this device.</p>
+      <div id="winnerLedger"></div>
+      <div class="dialog-actions">
+        <button class="btn" type="button" data-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="toolsDlg" role="dialog" aria-modal="true" aria-labelledby="toolsTitle" aria-hidden="true">
+    <div class="dialog dialog-sm">
+      <h2 id="toolsTitle">Host tools</h2>
+      <div class="tool-list">
+        <button class="tool-row" id="fullscreenBtn" type="button"><span><b>Fullscreen</b><small>Useful on a projector or TV</small></span><strong>Open</strong></button>
+        <button class="tool-row" id="wakeBtn" type="button"><span><b>Keep screen awake</b><small>Prevent the caller device from sleeping</small></span><strong id="wakeState">Off</strong></button>
+        <button class="tool-row" id="printBtn" type="button"><span><b>Print all 40 tickets</b><small>Generated from the same ticket data as the checker</small></span><strong>Print</strong></button>
+        <button class="tool-row" id="installBtn" type="button" hidden><span><b>Install app</b><small>Add Jain Word Housie to this device</small></span><strong>Install</strong></button>
+      </div>
+      <p class="status-note" id="offlineStatus">Offline support is being prepared.</p>
+      <div class="dialog-actions"><button class="btn" type="button" data-close>Close</button></div>
+    </div>
+  </div>
+
+  <div class="print-sheet" id="printSheet" aria-hidden="true"></div>
 
   <script src="assets/js/data.js"></script>
   <script src="assets/js/app.js"></script>
