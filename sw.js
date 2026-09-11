@@ -1,9 +1,10 @@
-const CACHE = "jain-housie-v2-1";
+const CACHE = "jain-housie-v2-2";
 const CORE = [
   "./",
   "./index.html",
   "./app.webmanifest",
   "./assets/css/style.css",
+  "./assets/css/prizes.css",
   "./assets/js/data.js",
   "./assets/js/app.js",
   "./assets/favicon.svg",
