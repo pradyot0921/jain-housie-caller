@@ -9,15 +9,8 @@
   var SVG_NS = "http://www.w3.org/2000/svg";
   var $ = function (id) { return document.getElementById(id); };
 
-  var PRIZES = [
-    { id: "early5", label: "Early Five" },
-    { id: "top", label: "Top Line" },
-    { id: "middle", label: "Middle Line" },
-    { id: "bottom", label: "Bottom Line" },
-    { id: "full", label: "Full House" }
-  ];
-
-  var state = freshState();
+  var VALID_RULES = ["any", "top", "middle", "bottom", "full"];
+  var state;
   var busy = false;
   var tiles = {};
   var ticks = [];
@@ -26,12 +19,39 @@
   var wakeWanted = false;
   var installPrompt = null;
   var lastFocus = null;
+  var prizeDraft = [];
   var DATA_OK = validateData();
 
-  function freshState() {
-    var now = Date.now();
-    return { version: 2, startedAt: now, updatedAt: now, called: [], callTimes: [], winners: [] };
+  function defaultPrizes() {
+    return [
+      { id: "early5", label: "Early Five", rule: "any", count: 5 },
+      { id: "top", label: "Top Line", rule: "top" },
+      { id: "middle", label: "Middle Line", rule: "middle" },
+      { id: "bottom", label: "Bottom Line", rule: "bottom" },
+      { id: "full", label: "Full House", rule: "full" }
+    ];
   }
+
+  function clonePrizes(prizes) {
+    return (prizes || []).map(function (p) {
+      return { id: p.id, label: p.label, rule: p.rule, count: p.rule === "any" ? p.count : undefined };
+    });
+  }
+
+  function freshState(prizes) {
+    var now = Date.now();
+    return {
+      version: 3,
+      startedAt: now,
+      updatedAt: now,
+      called: [],
+      callTimes: [],
+      winners: [],
+      prizes: clonePrizes(prizes && prizes.length ? prizes : defaultPrizes())
+    };
+  }
+
+  state = freshState();
 
   function word(n) { return WORDS[n - 1]; }
 
@@ -51,8 +71,22 @@
   }
 
   function prizeLabel(id) {
-    var found = PRIZES.find(function (p) { return p.id === id; });
+    var found = state.prizes.find(function (p) { return p.id === id; });
     return found ? found.label : id;
+  }
+
+  function winnerPrizeLabel(winner) {
+    return winner.prizeLabel || prizeLabel(winner.prize);
+  }
+
+  function ruleLabel(prize) {
+    if (!prize) return "";
+    if (prize.rule === "any") return "Any " + prize.count + " numbers on the ticket";
+    if (prize.rule === "top") return "All 5 numbers in the top line";
+    if (prize.rule === "middle") return "All 5 numbers in the middle line";
+    if (prize.rule === "bottom") return "All 5 numbers in the bottom line";
+    if (prize.rule === "full") return "All 15 numbers on the ticket";
+    return "";
   }
 
   function validateData() {
@@ -101,9 +135,24 @@
     return true;
   }
 
+  function normalizePrize(p, index) {
+    if (!p || typeof p !== "object") return null;
+    var rule = VALID_RULES.indexOf(p.rule) !== -1 ? p.rule : null;
+    if (!rule) return null;
+    var label = String(p.label || "").trim().slice(0, 60);
+    if (!label) return null;
+    var id = String(p.id || ("prize-" + index)).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+    if (!id) id = "prize-" + index;
+    var out = { id: id, label: label, rule: rule };
+    if (rule === "any") {
+      var count = parseInt(p.count, 10);
+      out.count = count >= 1 && count <= 15 ? count : 5;
+    }
+    return out;
+  }
+
   function normalizeState(saved) {
-    if (!saved || typeof saved !== "object") return null;
-    if (!Array.isArray(saved.called)) return null;
+    if (!saved || typeof saved !== "object" || !Array.isArray(saved.called)) return null;
     var validCalled = saved.called.every(function (n) { return Number.isInteger(n) && n >= 1 && n <= TOTAL; }) && new Set(saved.called).size === saved.called.length;
     if (!validCalled) return null;
 
@@ -113,8 +162,23 @@
     out.called = saved.called.slice();
     out.callTimes = Array.isArray(saved.callTimes) ? saved.callTimes.slice(0, out.called.length) : [];
     while (out.callTimes.length < out.called.length) out.callTimes.push(null);
+
+    if (Array.isArray(saved.prizes) && saved.prizes.length) {
+      var normalized = saved.prizes.map(normalizePrize).filter(Boolean);
+      if (normalized.length) out.prizes = normalized;
+    }
+
     out.winners = Array.isArray(saved.winners) ? saved.winners.filter(function (w) {
-      return w && PRIZES.some(function (p) { return p.id === w.prize; }) && Number.isInteger(w.ticket) && w.ticket >= 1 && w.ticket <= TICKETS.length;
+      return w && typeof w.prize === "string" && Number.isInteger(w.ticket) && w.ticket >= 1 && w.ticket <= TICKETS.length;
+    }).map(function (w) {
+      return {
+        prize: w.prize,
+        prizeLabel: w.prizeLabel || "",
+        ticket: w.ticket,
+        player: String(w.player || "").slice(0, 60),
+        completedAtCall: Number(w.completedAtCall) || 0,
+        awardedAt: Number(w.awardedAt) || 0
+      };
     }) : [];
     return out;
   }
@@ -143,6 +207,47 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       localStorage.removeItem(LEGACY_KEY);
     } catch (e) {}
+  }
+
+  function injectPrizeUi() {
+    if (!document.querySelector('link[href="assets/css/prizes.css"]')) {
+      var css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "assets/css/prizes.css";
+      document.head.appendChild(css);
+    }
+
+    var actions = document.querySelector(".actions");
+    if (actions && !$("prizeSetupBtn")) {
+      var button = document.createElement("button");
+      button.className = "btn";
+      button.id = "prizeSetupBtn";
+      button.type = "button";
+      button.textContent = "Prize setup";
+      var newBtn = $("newBtn");
+      actions.insertBefore(button, newBtn || null);
+    }
+
+    if (!$("prizeDlg")) {
+      var wrap = document.createElement("div");
+      wrap.innerHTML = '<div class="overlay" id="prizeDlg" role="dialog" aria-modal="true" aria-labelledby="prizeTitle" aria-hidden="true">' +
+        '<div class="dialog prize-dialog">' +
+          '<h2 id="prizeTitle">Prize setup</h2>' +
+          '<p class="dialog-intro">Choose which prizes are available and exactly what makes each claim valid. These settings stay saved on this device.</p>' +
+          '<div class="prize-config" id="prizeConfigList"></div>' +
+          '<div class="prize-add-actions">' +
+            '<button class="btn" id="addPrizeBtn" type="button">Add custom prize</button>' +
+            '<button class="btn" id="addFullHouseBtn" type="button">Add another Full House</button>' +
+          '</div>' +
+          '<p class="prize-help">For “Any N numbers”, any N called numbers anywhere on that ticket count. Example: Early Five = any 5.</p>' +
+          '<div class="dialog-actions">' +
+            '<button class="btn" type="button" data-close>Cancel</button>' +
+            '<button class="btn btn-primary" id="savePrizesBtn" type="button">Save prizes</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(wrap.firstElementChild);
+    }
   }
 
   function remaining() {
@@ -227,7 +332,7 @@
     }
     el.className = "winner-chips";
     el.innerHTML = state.winners.slice(-3).reverse().map(function (w) {
-      return '<button type="button" data-winner-open><b>' + escapeHtml(prizeLabel(w.prize)) + '</b><span>Ticket ' + w.ticket + (w.player ? " · " + escapeHtml(w.player) : "") + "</span></button>";
+      return '<button type="button" data-winner-open><b>' + escapeHtml(winnerPrizeLabel(w)) + '</b><span>Ticket ' + w.ticket + (w.player ? " · " + escapeHtml(w.player) : "") + "</span></button>";
     }).join("");
     el.querySelectorAll("[data-winner-open]").forEach(function (b) { b.addEventListener("click", openWinners); });
   }
@@ -268,8 +373,9 @@
     $("drawLabel").textContent = finished ? "All " + TOTAL + " words called" : "Draw next word";
     $("mobileDrawBtn").textContent = finished ? "Done" : busy ? "Drawing…" : "Draw";
     $("undoBtn").hidden = busy || state.called.length === 0;
-    $("checkBtn").disabled = busy || !DATA_OK;
+    $("checkBtn").disabled = busy || !DATA_OK || !state.prizes.length;
     $("newBtn").disabled = busy || state.called.length === 0;
+    if ($("prizeSetupBtn")) $("prizeSetupBtn").disabled = busy;
 
     renderRecent();
     renderWinnersMini();
@@ -375,21 +481,27 @@
   function askNewGame() {
     if (busy || !state.called.length) return;
     var n = state.called.length;
-    $("newMsg").textContent = n + (n === 1 ? " word has" : " words have") + " been called and " + state.winners.length + " prize award(s) are saved. Starting a new game clears both and cannot be undone.";
+    $("newMsg").textContent = n + (n === 1 ? " word has" : " words have") + " been called and " + state.winners.length + " prize award(s) are saved. Starting a new game clears calls and winners, but keeps your prize setup.";
     openDialog("newDlg", "[data-close]");
   }
 
   function startNewGame() {
-    state = freshState();
+    var prizes = clonePrizes(state.prizes);
+    state = freshState(prizes);
     save();
     closeDialogs();
+    buildPrizeOptions();
     render();
     $("drawBtn").focus();
     try { sessionStorage.setItem(TAB_KEY, "1"); } catch (e) {}
   }
 
   function buildPrizeOptions() {
-    $("prizeType").innerHTML = PRIZES.map(function (p) { return '<option value="' + p.id + '">' + escapeHtml(p.label) + "</option>"; }).join("");
+    var select = $("prizeType");
+    if (!select) return;
+    select.innerHTML = state.prizes.map(function (p) {
+      return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.label) + "</option>";
+    }).join("");
   }
 
   function ticketNumbers(ticketNo) {
@@ -406,31 +518,41 @@
   function evaluateClaim(ticketNo, prize) {
     var grid = TICKETS[ticketNo - 1];
     var targets;
-    var required;
 
-    if (prize === "top") targets = grid[0].filter(Boolean);
-    else if (prize === "middle") targets = grid[1].filter(Boolean);
-    else if (prize === "bottom") targets = grid[2].filter(Boolean);
+    if (prize.rule === "top") targets = grid[0].filter(Boolean);
+    else if (prize.rule === "middle") targets = grid[1].filter(Boolean);
+    else if (prize.rule === "bottom") targets = grid[2].filter(Boolean);
     else targets = ticketNumbers(ticketNo);
 
-    if (prize === "early5") {
-      var calledTargets = targets.map(function (n) { return { n: n, pos: callPosition(n) }; }).filter(function (x) { return x.pos; }).sort(function (a, b) { return a.pos - b.pos; });
-      required = 5;
+    if (prize.rule === "any") {
+      var calledTargets = targets.map(function (n) { return { n: n, pos: callPosition(n) }; })
+        .filter(function (x) { return x.pos; })
+        .sort(function (a, b) { return a.pos - b.pos; });
+      var required = prize.count;
       if (calledTargets.length >= required) {
-        return { valid: true, completion: calledTargets[required - 1].pos, missing: [], progress: calledTargets.length + " of 15 ticket words called" };
+        return {
+          valid: true,
+          completion: calledTargets[required - 1].pos,
+          missing: [],
+          progress: calledTargets.length + " ticket numbers are called; " + required + " are needed"
+        };
       }
-      return { valid: false, completion: 0, missing: targets.filter(function (n) { return !callPosition(n); }), progress: calledTargets.length + " of 5 needed" };
+      return {
+        valid: false,
+        completion: 0,
+        missing: targets.filter(function (n) { return !callPosition(n); }),
+        progress: calledTargets.length + " of " + required + " needed numbers are called"
+      };
     }
 
-    required = targets.length;
     var positions = targets.map(callPosition);
     var missing = targets.filter(function (n, i) { return !positions[i]; });
-    var count = required - missing.length;
+    var count = targets.length - missing.length;
     return {
       valid: missing.length === 0,
       completion: missing.length ? 0 : Math.max.apply(null, positions),
       missing: missing,
-      progress: count + " of " + required + " required words called"
+      progress: count + " of " + targets.length + " required numbers are called"
     };
   }
 
@@ -448,27 +570,32 @@
     return html + "</div>";
   }
 
-  function awardExists(ticketNo, prize) {
-    return state.winners.some(function (w) { return w.ticket === ticketNo && w.prize === prize; });
+  function awardExists(ticketNo, prizeId) {
+    return state.winners.some(function (w) { return w.ticket === ticketNo && w.prize === prizeId; });
   }
 
   function verifyClaim() {
     var ticketNo = parseInt($("ticketNo").value, 10);
-    var prize = $("prizeType").value;
+    var prizeId = $("prizeType").value;
+    var prize = state.prizes.find(function (p) { return p.id === prizeId; });
     var out = $("ticketOut");
 
     if (!(ticketNo >= 1 && ticketNo <= TICKETS.length)) {
       out.innerHTML = '<p class="error">Enter a ticket number from 1 to ' + TICKETS.length + ".</p>";
       return;
     }
+    if (!prize) {
+      out.innerHTML = '<p class="error">Choose a configured prize.</p>';
+      return;
+    }
 
     var result = evaluateClaim(ticketNo, prize);
     var html = ticketHtml(ticketNo);
-    var already = awardExists(ticketNo, prize);
+    var already = awardExists(ticketNo, prize.id);
 
     if (result.valid) {
       var finalWord = state.called[result.completion - 1];
-      html += '<section class="claim-result valid"><div><span class="result-kicker">Valid claim</span><h3>' + escapeHtml(prizeLabel(prize)) + " · Ticket " + ticketNo + '</h3><p>Completed on call <b>#' + result.completion + "</b> with <span class=\"hindi\">" + escapeHtml(word(finalWord)) + "</span>.</p></div>";
+      html += '<section class="claim-result valid"><div><span class="result-kicker">Valid claim</span><h3>' + escapeHtml(prize.label) + " · Ticket " + ticketNo + '</h3><p class="rule-note">' + escapeHtml(ruleLabel(prize)) + '.</p><p>Completed on call <b>#' + result.completion + "</b> with <span class=\"hindi\">" + escapeHtml(word(finalWord)) + "</span>.</p></div>";
       if (already) {
         html += '<p class="already">This prize has already been recorded for Ticket ' + ticketNo + ".</p>";
       } else {
@@ -476,8 +603,8 @@
       }
       html += "</section>";
     } else {
-      html += '<section class="claim-result invalid"><div><span class="result-kicker">Not complete yet</span><h3>' + escapeHtml(prizeLabel(prize)) + " · Ticket " + ticketNo + "</h3><p>" + escapeHtml(result.progress) + ".</p></div>";
-      if (result.missing.length) {
+      html += '<section class="claim-result invalid"><div><span class="result-kicker">Not complete yet</span><h3>' + escapeHtml(prize.label) + " · Ticket " + ticketNo + '</h3><p class="rule-note">' + escapeHtml(ruleLabel(prize)) + '.</p><p>' + escapeHtml(result.progress) + ".</p></div>";
+      if (result.missing.length && prize.rule !== "any") {
         html += '<div class="missing"><b>Still uncalled</b><div>' + result.missing.slice(0, 8).map(function (n) { return '<span class="hindi">' + escapeHtml(word(n)) + "</span>"; }).join("") + (result.missing.length > 8 ? "<em>+" + (result.missing.length - 8) + " more</em>" : "") + "</div></div>";
       }
       html += "</section>";
@@ -489,10 +616,11 @@
   }
 
   function awardPrize(ticketNo, prize, completion) {
-    if (awardExists(ticketNo, prize)) return;
+    if (awardExists(ticketNo, prize.id)) return;
     var player = $("playerName") ? $("playerName").value.trim() : "";
     state.winners.push({
-      prize: prize,
+      prize: prize.id,
+      prizeLabel: prize.label,
       ticket: ticketNo,
       player: player,
       completedAtCall: completion,
@@ -501,15 +629,120 @@
     save();
     renderWinnersMini();
     verifyClaim();
-    $("announce").textContent = prizeLabel(prize) + " awarded to Ticket " + ticketNo + ".";
+    $("announce").textContent = prize.label + " awarded to Ticket " + ticketNo + ".";
   }
 
   function openClaim() {
-    if (busy || !DATA_OK) return;
+    if (busy || !DATA_OK || !state.prizes.length) return;
+    buildPrizeOptions();
     $("ticketOut").innerHTML = "";
     $("ticketNo").value = "";
-    $("prizeType").value = "early5";
+    $("prizeType").selectedIndex = 0;
     openDialog("checkDlg", "#ticketNo");
+  }
+
+  function newPrizeId() {
+    return "prize-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
+  }
+
+  function ruleOptions(selected) {
+    var choices = [
+      ["any", "Any N numbers on ticket"],
+      ["top", "Top line (all 5)"],
+      ["middle", "Middle line (all 5)"],
+      ["bottom", "Bottom line (all 5)"],
+      ["full", "Full House (all 15)"]
+    ];
+    return choices.map(function (c) {
+      return '<option value="' + c[0] + '"' + (selected === c[0] ? " selected" : "") + ">" + c[1] + "</option>";
+    }).join("");
+  }
+
+  function renderPrizeDraft() {
+    var out = $("prizeConfigList");
+    out.innerHTML = prizeDraft.map(function (p, index) {
+      var count = p.rule === "any" ? p.count : 5;
+      return '<div class="prize-config-row" data-prize-index="' + index + '">' +
+        '<label class="prize-name-label">Prize name<input type="text" maxlength="60" value="' + escapeHtml(p.label) + '" data-prize-field="label"></label>' +
+        '<label class="prize-rule-label">Claim rule<select data-prize-field="rule">' + ruleOptions(p.rule) + "</select></label>" +
+        '<label class="prize-count-label' + (p.rule === "any" ? "" : " is-hidden") + '">How many?<input type="number" min="1" max="15" inputmode="numeric" value="' + count + '" data-prize-field="count"></label>' +
+        '<button class="text-btn danger-text prize-remove" type="button" data-remove-prize="' + index + '">Remove</button>' +
+      "</div>";
+    }).join("");
+  }
+
+  function openPrizeSetup() {
+    if (busy) return;
+    prizeDraft = clonePrizes(state.prizes);
+    renderPrizeDraft();
+    openDialog("prizeDlg", "[data-prize-field='label']");
+  }
+
+  function addCustomPrize() {
+    prizeDraft.push({ id: newPrizeId(), label: "New Prize", rule: "any", count: 5 });
+    renderPrizeDraft();
+    var rows = $("prizeConfigList").querySelectorAll(".prize-config-row");
+    var last = rows[rows.length - 1];
+    if (last) last.querySelector("input").focus();
+  }
+
+  function addFullHousePrize() {
+    var fulls = prizeDraft.filter(function (p) { return p.rule === "full"; });
+    if (fulls.length === 1 && /^Full House$/i.test(fulls[0].label)) fulls[0].label = "Full House 1";
+    var next = fulls.length + 1;
+    prizeDraft.push({ id: newPrizeId(), label: "Full House " + next, rule: "full" });
+    renderPrizeDraft();
+  }
+
+  function handlePrizeDraftInput(e) {
+    var row = e.target.closest("[data-prize-index]");
+    var field = e.target.getAttribute("data-prize-field");
+    if (!row || !field) return;
+    var index = parseInt(row.getAttribute("data-prize-index"), 10);
+    var prize = prizeDraft[index];
+    if (!prize) return;
+
+    if (field === "label") prize.label = e.target.value;
+    if (field === "rule") {
+      prize.rule = e.target.value;
+      if (prize.rule === "any" && !(prize.count >= 1 && prize.count <= 15)) prize.count = 5;
+      renderPrizeDraft();
+    }
+    if (field === "count") prize.count = parseInt(e.target.value, 10) || 1;
+  }
+
+  function removeDraftPrize(index) {
+    prizeDraft.splice(index, 1);
+    renderPrizeDraft();
+  }
+
+  function savePrizeSetup() {
+    var normalized = prizeDraft.map(function (p, i) {
+      var copy = {
+        id: p.id || newPrizeId(),
+        label: String(p.label || "").trim(),
+        rule: p.rule,
+        count: p.count
+      };
+      return normalizePrize(copy, i);
+    }).filter(Boolean);
+
+    if (!normalized.length) {
+      $("announce").textContent = "Add at least one valid prize before saving.";
+      return;
+    }
+
+    var ids = new Set();
+    normalized.forEach(function (p) {
+      while (ids.has(p.id)) p.id = newPrizeId();
+      ids.add(p.id);
+    });
+    state.prizes = normalized;
+    save();
+    buildPrizeOptions();
+    render();
+    closeDialogs();
+    $("announce").textContent = "Prize setup saved.";
   }
 
   function openHistory() {
@@ -529,7 +762,7 @@
       return;
     }
     out.innerHTML = '<div class="ledger">' + state.winners.map(function (w, i) {
-      return '<div class="ledger-row"><div><b>' + escapeHtml(prizeLabel(w.prize)) + '</b><span>Ticket ' + w.ticket + (w.player ? " · " + escapeHtml(w.player) : "") + '</span></div><div><span>Completed #' + (w.completedAtCall || "?") + '</span><button class="text-btn danger-text" type="button" data-remove-award="' + i + '">Remove</button></div></div>';
+      return '<div class="ledger-row"><div><b>' + escapeHtml(winnerPrizeLabel(w)) + '</b><span>Ticket ' + w.ticket + (w.player ? " · " + escapeHtml(w.player) : "") + '</span></div><div><span>Completed #' + (w.completedAtCall || "?") + '</span><button class="text-btn danger-text" type="button" data-remove-award="' + i + '">Remove</button></div></div>';
     }).join("") + "</div>";
     out.querySelectorAll("[data-remove-award]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -648,10 +881,11 @@
     $("installBtn").hidden = true;
   }
 
+  injectPrizeUi();
   buildBoard();
   buildTicks();
-  buildPrizeOptions();
   load();
+  buildPrizeOptions();
   if (!DATA_OK) $("dataError").hidden = false;
   render();
   registerPwa();
@@ -675,6 +909,17 @@
   $("wakeBtn").addEventListener("click", toggleWake);
   $("printBtn").addEventListener("click", printTickets);
   $("installBtn").addEventListener("click", installApp);
+  $("prizeSetupBtn").addEventListener("click", openPrizeSetup);
+  $("addPrizeBtn").addEventListener("click", addCustomPrize);
+  $("addFullHouseBtn").addEventListener("click", addFullHousePrize);
+  $("savePrizesBtn").addEventListener("click", savePrizeSetup);
+  $("prizeConfigList").addEventListener("input", handlePrizeDraftInput);
+  $("prizeConfigList").addEventListener("change", handlePrizeDraftInput);
+  $("prizeConfigList").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-remove-prize]");
+    if (!btn) return;
+    removeDraftPrize(parseInt(btn.getAttribute("data-remove-prize"), 10));
+  });
 
   document.querySelectorAll("[data-close]").forEach(function (b) { b.addEventListener("click", closeDialogs); });
   document.querySelectorAll(".overlay").forEach(function (o) {
