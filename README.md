@@ -1,39 +1,61 @@
-# Jain Word Housie: caller board
+# Jain Word Housie: host console
 
-A small static website for the person calling a game of Jain Word Housie. It draws the 90 words at random, strikes each one off the board, and lets you check a player's ticket when they claim a win.
+A dependency-free website for hosting Jain Word Housie. It draws the 90 words at random, tracks the complete call order, verifies prize claims against the 40 printed tickets, records winners and works offline once installed or cached.
 
-## What it does
+## Host features
 
-- **Draw next word** picks a random word that hasn't been called yet. The spacebar works too.
-- **Board** shows all 90 words in numbered order. Called words are struck off and the latest one is highlighted.
-- **Undo last draw** puts back a word drawn by mistake.
-- **New game** clears the board after asking for confirmation.
-- **Check a ticket** shows any of the 40 printed tickets with the called words marked and a count for each line.
+- **Draw next word** chooses a random word that has not been called. Spacebar works too.
+- **Board** shows all 90 words, highlights the latest call and strikes off previous calls.
+- **Undo last draw** removes the latest call. Awards that depended on that call are also removed.
+- **Claim verifier** checks Early Five, Top Line, Middle Line, Bottom Line and Full House from the exact call order.
+- **Winner ledger** records the prize, ticket, optional player name and completion call. The same ticket/prize cannot be awarded twice, while ties across different tickets are allowed.
+- **Call history** lists every called word in order, with timestamps for new V2 calls.
+- **Print tickets** generates all 40 paper tickets directly from `assets/js/data.js`, so printed tickets and the checker share one source of truth.
+- **Host tools** include fullscreen mode, Screen Wake Lock where supported, install-to-device support and offline caching.
+- **Mobile caller bar** keeps the current word and Draw control available while scrolling the board.
+- **Saved games** survive refreshes and browser restarts. The previous V1 caller state is migrated automatically.
 
-The game state is saved in the browser, so refreshing the page mid-game is safe. It is saved per device, so call the whole game from one device.
+## Data integrity
+
+`assets/js/data.js` contains the 90 words and 40 ticket layouts. The app validates that data at runtime before drawing. GitHub Actions also runs `scripts/validate-data.js` on every push and pull request.
+
+The validator checks exactly 90 words and 40 tickets, 3 rows × 9 columns per ticket, exactly 5 words per row and 15 unique words per ticket, correct Housie decade-column placement, and ascending values within each column.
+
+Run it locally with:
+
+```bash
+node scripts/validate-data.js
+```
 
 ## Files
 
-```
+```text
 index.html
+app.webmanifest
+sw.js
 assets/
   css/style.css
-  js/app.js       game logic
-  js/data.js      the 90 words and the 40 ticket layouts
-  fonts/          Instrument Sans, Tiro Devanagari Hindi, Mukta (SIL Open Font License)
+  js/app.js
+  js/data.js
+  fonts/
   favicon.svg
+scripts/
+  validate-data.js
+.github/workflows/
+  validate.yml
 netlify.toml
 ```
 
-`assets/js/data.js` matches the printed PDF tickets. If you change a word there, reprint the tickets as well.
+## Run locally
 
-## Run it locally
+Service workers require HTTP rather than a plain `file://` URL. For example:
 
-Open `index.html` in a browser. No build step or install is needed.
+```bash
+python -m http.server 8000
+```
 
-## Deploy on Netlify from GitHub
+Then open `http://localhost:8000`.
 
-1. Push this folder to a new GitHub repository.
-2. In Netlify, choose **Add new project**, then **Import an existing project**, and pick the repository.
-3. Leave the build command empty. The publish directory is already set to the repository root in `netlify.toml`.
-4. Deploy. Every push to the main branch redeploys the site.
+## Deploy on Netlify
+
+No build step is required. `netlify.toml` publishes the repository root. Each push to the deployed branch triggers a new Netlify deployment.
