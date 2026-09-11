@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jain Word Housie | Caller</title>
+  <meta name="description" content="Caller board for Jain Word Housie. Draw words at random, strike them off the board and check tickets.">
+  <meta name="theme-color" content="#10162b">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/tiro-devanagari-hindi.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/mukta-semibold.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div class="ribbon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+
+  <header class="top">
+    <div class="brand">
+      <h1>Jain Word Housie</h1>
+      <p>Caller board</p>
+    </div>
+    <nav class="actions" aria-label="Game actions">
+      <button class="btn btn-ghost" id="checkBtn" type="button">Check a ticket</button>
+      <button class="btn btn-ghost" id="newBtn" type="button">New game</button>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <section class="card stage" aria-label="Caller">
+      <div class="stage-top">
+        <p class="label">Now calling</p>
+        <div class="current idle" id="current" aria-live="polite">Press draw to call the first word</div>
+        <div class="progress">
+          <span id="countText">0 of 90 called</span>
+          <span id="leftText" class="muted">90 left</span>
+        </div>
+        <div class="bar" aria-hidden="true"><span id="bar"></span></div>
+      </div>
+
+      <div class="stage-controls">
+        <button class="btn-draw" id="drawBtn" type="button">Draw next word</button>
+        <p class="hint">Tip: press the spacebar to draw</p>
+        <button class="btn-link" id="undoBtn" type="button" hidden>Undo last draw</button>
+      </div>
+
+      <div class="recent">
+        <h2>Called before this</h2>
+        <ol id="recent"></ol>
+      </div>
+    </section>
+
+    <section class="card board-card" aria-label="Board">
+      <div class="board-head">
+        <h2>Board</h2>
+        <p class="muted">Called words are struck off</p>
+      </div>
+      <div class="board" id="board"></div>
+    </section>
+  </main>
+
+  <div class="overlay" id="newDlg" role="dialog" aria-modal="true" aria-labelledby="newTitle">
+    <div class="dialog dialog-sm">
+      <h2 id="newTitle">Start a new game?</h2>
+      <p id="newMsg"></p>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" type="button" data-close>Cancel</button>
+        <button class="btn btn-danger" id="confirmNew" type="button">Start new game</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="checkDlg" role="dialog" aria-modal="true" aria-labelledby="checkTitle">
+    <div class="dialog">
+      <h2 id="checkTitle">Check a ticket</h2>
+      <div class="check-form">
+        <label for="ticketNo">Ticket number (1 to 40)</label>
+        <input id="ticketNo" type="number" min="1" max="40" inputmode="numeric" autocomplete="off">
+        <button class="btn btn-ghost" id="showTicket" type="button">Show</button>
+      </div>
+      <div id="ticketOut"></div>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" type="button" data-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
