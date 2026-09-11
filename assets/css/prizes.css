@@ -1,0 +1,21 @@
+/* Configurable prize setup */
+.prize-dialog{max-width:920px}
+.prize-config{display:grid;gap:10px;margin:18px 0}
+.prize-config-row{display:grid;grid-template-columns:minmax(170px,1.1fr) minmax(210px,1.3fr) 110px auto;gap:10px;align-items:end;padding:14px;border:1px solid var(--hair);border-radius:14px;background:var(--marble)}
+.prize-config-row label{display:grid;gap:5px;font-size:12px;font-weight:600;color:var(--slate)}
+.prize-config-row input,.prize-config-row select{width:100%;min-width:0;padding:9px 10px;border:1px solid var(--hair);border-radius:10px;background:var(--white);color:var(--ink);font:inherit;font-size:15px}
+.prize-config-row input:focus,.prize-config-row select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-wash)}
+.prize-count-label.is-hidden{visibility:hidden;pointer-events:none}
+.prize-remove{align-self:center;margin:0;white-space:nowrap}
+.prize-add-actions{display:flex;gap:10px;flex-wrap:wrap;margin:2px 0 12px}
+.prize-help{margin:0 0 18px!important;padding:11px 13px;border-radius:12px;background:var(--gold-wash);color:#454b63!important;font-size:13px}
+.rule-note{margin:2px 0 8px!important;font-size:13px;color:var(--slate)!important}
+@media(max-width:720px){
+  .prize-config-row{grid-template-columns:1fr 1fr}
+  .prize-remove{justify-self:start}
+}
+@media(max-width:520px){
+  .prize-config-row{grid-template-columns:1fr}
+  .prize-count-label.is-hidden{display:none}
+  .prize-add-actions .btn{flex:1 1 100%;justify-content:center}
+}
