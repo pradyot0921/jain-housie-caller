@@ -4,11 +4,13 @@
   var STORAGE_KEY = "jain-housie-caller-v1";
   var TOTAL = WORDS.length;
   var SHUFFLE_MS = 900;
+  var SVG_NS = "http://www.w3.org/2000/svg";
   var $ = function (id) { return document.getElementById(id); };
 
   var called = [];   // word numbers (1 to 90) in the order they were drawn
-  var busy = false;  // true while the shuffle animation runs
+  var busy = false;  // true while the shuffle runs
   var tiles = {};
+  var ticks = [];
 
   function word(n) { return WORDS[n - 1]; }
 
@@ -19,7 +21,7 @@
         saved.every(function (n) { return Number.isInteger(n) && n >= 1 && n <= TOTAL; }) &&
         new Set(saved).size === saved.length;
       if (valid) called = saved;
-    } catch (e) { /* storage unavailable: game still works, it just won't survive a refresh */ }
+    } catch (e) { /* storage unavailable: the game still works, it just won't survive a refresh */ }
   }
 
   function save() {
@@ -42,7 +44,7 @@
   }
 
   function escapeHtml(s) {
-    return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
+    return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
   }
 
   function buildBoard() {
@@ -56,26 +58,46 @@
     }
   }
 
-  // Shrink the big word only if a single unbreakable part would not fit the panel.
+  // One tick around the outer ring for each word; they light up in the order words are called.
+  function buildTicks() {
+    var group = $("ticks");
+    for (var i = 0; i < TOTAL; i++) {
+      var a = (i / TOTAL) * Math.PI * 2 - Math.PI / 2;
+      var line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", 170 + Math.cos(a) * 150);
+      line.setAttribute("y1", 170 + Math.sin(a) * 150);
+      line.setAttribute("x2", 170 + Math.cos(a) * 162);
+      line.setAttribute("y2", 170 + Math.sin(a) * 162);
+      line.setAttribute("class", "tick");
+      group.appendChild(line);
+      ticks.push(line);
+    }
+  }
+
+  // Keep the big word inside the inner ring.
   var probe;
   function fitCurrent() {
     var el = $("current");
     if (el.classList.contains("idle")) { el.style.fontSize = ""; return; }
-    var size = window.innerWidth <= 860 ? 56 : 68;
-    el.style.fontSize = size + "px";
+    var ring = $("rings").clientWidth;
+    var size = Math.round(ring * 0.17);
+    var maxHeight = ring * 0.44;
     if (!probe) {
       probe = document.createElement("span");
-      probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;left:-9999px";
-      probe.style.fontFamily = getComputedStyle(el).fontFamily;
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;left:-9999px;top:0";
       document.body.appendChild(probe);
     }
+    probe.style.fontFamily = getComputedStyle(el).fontFamily;
     var parts = el.textContent.split(" ");
     var widest = function () {
       probe.style.fontSize = size + "px";
       return Math.max.apply(null, parts.map(function (p) { probe.textContent = p; return probe.getBoundingClientRect().width; }));
     };
-    while (size > 28 && widest() > el.clientWidth - 8) size -= 2;
     el.style.fontSize = size + "px";
+    while (size > 24 && (widest() > el.clientWidth - 4 || el.scrollHeight > maxHeight)) {
+      size -= 2;
+      el.style.fontSize = size + "px";
+    }
   }
 
   function render() {
@@ -98,21 +120,31 @@
       tiles[n].classList.toggle("called", done.has(n));
       tiles[n].classList.toggle("last", n === last);
     }
+    ticks.forEach(function (t, i) {
+      t.classList.toggle("on", i < called.length);
+      t.classList.toggle("last", i === called.length - 1);
+    });
 
     $("countText").textContent = called.length + " of " + TOTAL + " called";
     $("leftText").textContent = (TOTAL - called.length) + " left";
-    $("bar").style.width = (called.length / TOTAL * 100) + "%";
 
     var finished = called.length === TOTAL;
-    var draw = $("drawBtn");
-    draw.disabled = busy || finished;
-    draw.textContent = finished ? "All " + TOTAL + " words called" : "Draw next word";
+    $("drawBtn").disabled = busy || finished;
+    $("drawLabel").textContent = finished ? "All " + TOTAL + " words called" : "Draw next word";
     $("undoBtn").hidden = busy || called.length === 0;
 
-    var before = called.slice(0, -1).slice(-6).reverse();
+    var before = [];
+    for (var i = called.length - 2; i >= 0 && before.length < 6; i--) before.push(i);
     $("recent").innerHTML = before.length
-      ? before.map(function (n) { return "<li>" + escapeHtml(word(n)) + "</li>"; }).join("")
+      ? before.map(function (i) { return "<li><i>" + (i + 1) + "</i><span>" + escapeHtml(word(called[i])) + "</span></li>"; }).join("")
       : '<li class="empty">Nothing yet</li>';
+  }
+
+  function pulse() {
+    var p = $("pulse");
+    p.classList.remove("go");
+    void p.getBoundingClientRect();
+    p.classList.add("go");
   }
 
   function drawWord() {
@@ -132,6 +164,7 @@
       void current.offsetWidth; // restart the landing animation
       current.classList.add("landed");
       render();
+      pulse();
     }
 
     if (reduceMotion || left.length === 1) { land(); return; }
@@ -158,8 +191,11 @@
   var lastFocus = null;
   function openDialog(id, focusSelector) {
     lastFocus = document.activeElement;
-    $(id).classList.add("open");
-    var target = $(id).querySelector(focusSelector);
+    var overlay = $(id);
+    overlay.classList.add("open");
+    var box = overlay.querySelector(".dialog");
+    box.classList.remove("open-anim"); void box.offsetWidth; box.classList.add("open-anim");
+    var target = overlay.querySelector(focusSelector);
     if (target) target.focus();
   }
   function closeDialogs() {
@@ -169,10 +205,9 @@
   function dialogOpen() { return !!document.querySelector(".overlay.open"); }
 
   function askNewGame() {
-    if (busy) return;
-    if (!called.length) return;
+    if (busy || !called.length) return;
     var n = called.length;
-    $("newMsg").textContent = n + (n === 1 ? " word has" : " words have") + " been called. Starting a new game clears the board.";
+    $("newMsg").textContent = n + (n === 1 ? " word has" : " words have") + " been called. Starting a new game clears the board and cannot be undone.";
     openDialog("newDlg", "[data-close]");
   }
 
@@ -207,15 +242,17 @@
     grid.forEach(function (row, i) {
       var count = row.filter(function (w) { return w && done.has(w); }).length;
       total += count;
-      lines += "<span>Line " + (i + 1) + ": " + count + " of 5 called" + (count === 5 ? ' <span class="ok">Complete</span>' : "") + "</span>";
+      lines += '<div class="line' + (count === 5 ? " done" : "") + '">Line ' + (i + 1) +
+        "<strong>" + count + " of 5" + (count === 5 ? '<span class="badge">Complete</span>' : "") + "</strong></div>";
     });
-    html += '<div class="summary"><strong>Ticket ' + n + ": " + total + " of 15 words called" +
-      (total === 15 ? ' <span class="ok">Full house</span>' : "") + "</strong>" + lines + "</div>";
+    html += '<div class="summary"><div class="total">Ticket ' + n + ": " + total + " of 15 words called" +
+      (total === 15 ? '<span class="badge">Full house</span>' : "") + "</div>" + lines + "</div>";
     out.innerHTML = html;
   }
 
   // wire up
   buildBoard();
+  buildTicks();
   load();
   render();
 
