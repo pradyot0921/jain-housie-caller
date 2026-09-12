@@ -8,8 +8,9 @@ A dependency-free website for hosting Jain Word Housie. It draws the 90 words at
 - **Board** shows all 90 words, highlights the latest call and strikes off previous calls.
 - **Undo last draw** removes the latest call. Awards that depended on that call are also removed.
 - **Claim verifier** checks Early Five, Top Line, Middle Line, Bottom Line, Full House and host-defined patterns from the exact call order.
-- **Custom pattern prizes** let the host select required positions on a sample ticket, including a one-click Four Corners preset. Those relative positions are then checked correctly on every ticket.
-- **Winner ledger** requires a winner name when a prize is awarded and lets the host edit that name later. It records the prize, ticket and completion call. The same ticket/prize cannot be awarded twice, while ties across different tickets are allowed.
+- **Custom pattern prizes** let the host select required positions on a five-filled-cells-per-row sample ticket. The Four Corners preset always maps to the first and last filled word in the top and bottom rows, regardless of their printed columns.
+- **Winner limits** default every prize to one winner and close it automatically once filled. The host can deliberately allow up to 20 winners for ties.
+- **Winner ledger** requires a separate name for every winner and lets the host edit names later. It records each winner place, prize, ticket and completion call; the same ticket/prize cannot be awarded twice.
 - **Call history** lists every called word in order, with timestamps for new V2 calls.
 - **Print tickets** generates all 40 paper tickets directly from `assets/js/data.js`, so printed tickets and the checker share one source of truth.
 - **Host tools** include fullscreen mode, Screen Wake Lock where supported, install-to-device support and offline caching.

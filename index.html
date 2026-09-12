@@ -108,28 +108,33 @@
 
   <div class="overlay" id="resumeDlg" role="dialog" aria-modal="true" aria-labelledby="resumeTitle" aria-hidden="true">
     <div class="dialog dialog-sm">
+      <div class="dialog-scroll">
       <h2 id="resumeTitle">Previous game found</h2>
       <p id="resumeMsg"></p>
       <div class="dialog-actions">
         <button class="btn" id="resumeGame" type="button">Resume game</button>
         <button class="btn btn-danger" id="freshGame" type="button">Start new game</button>
       </div>
+      </div>
     </div>
   </div>
 
   <div class="overlay" id="newDlg" role="dialog" aria-modal="true" aria-labelledby="newTitle" aria-hidden="true">
     <div class="dialog dialog-sm">
+      <div class="dialog-scroll">
       <h2 id="newTitle">Start a new game?</h2>
       <p id="newMsg"></p>
       <div class="dialog-actions">
         <button class="btn" type="button" data-close>Cancel</button>
         <button class="btn btn-danger" id="confirmNew" type="button">Start new game</button>
       </div>
+      </div>
     </div>
   </div>
 
   <div class="overlay" id="checkDlg" role="dialog" aria-modal="true" aria-labelledby="checkTitle" aria-hidden="true">
     <div class="dialog">
+      <div class="dialog-scroll">
       <h2 id="checkTitle">Verify a prize claim</h2>
       <p class="dialog-intro">Choose the ticket and claimed prize. The result is calculated from the exact call order.</p>
       <div class="claim-form">
@@ -141,33 +146,39 @@
       <div class="dialog-actions">
         <button class="btn" type="button" data-close>Close</button>
       </div>
+      </div>
     </div>
   </div>
 
   <div class="overlay" id="historyDlg" role="dialog" aria-modal="true" aria-labelledby="historyTitle" aria-hidden="true">
     <div class="dialog dialog-mid">
+      <div class="dialog-scroll">
       <h2 id="historyTitle">Call history</h2>
       <p class="dialog-intro" id="historySummary"></p>
       <ol class="history-list" id="historyList"></ol>
       <div class="dialog-actions">
         <button class="btn" type="button" data-close>Close</button>
       </div>
+      </div>
     </div>
   </div>
 
   <div class="overlay" id="winnersDlg" role="dialog" aria-modal="true" aria-labelledby="winnersTitle" aria-hidden="true">
     <div class="dialog dialog-mid">
+      <div class="dialog-scroll">
       <h2 id="winnersTitle">Winner ledger</h2>
       <p class="dialog-intro">Awards are stored with this game on this device.</p>
       <div id="winnerLedger"></div>
       <div class="dialog-actions">
         <button class="btn" type="button" data-close>Close</button>
       </div>
+      </div>
     </div>
   </div>
 
   <div class="overlay" id="toolsDlg" role="dialog" aria-modal="true" aria-labelledby="toolsTitle" aria-hidden="true">
     <div class="dialog dialog-sm">
+      <div class="dialog-scroll">
       <h2 id="toolsTitle">Host tools</h2>
       <div class="tool-list">
         <button class="tool-row" id="fullscreenBtn" type="button"><span><b>Fullscreen</b><small>Useful on a projector or TV</small></span><strong>Open</strong></button>
@@ -177,6 +188,7 @@
       </div>
       <p class="status-note" id="offlineStatus">Offline support is being prepared.</p>
       <div class="dialog-actions"><button class="btn" type="button" data-close>Close</button></div>
+      </div>
     </div>
   </div>
 
