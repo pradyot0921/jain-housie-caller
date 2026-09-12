@@ -22,3 +22,5 @@ jobs:
           node --check sw.js
       - name: Validate ticket data
         run: node scripts/validate-data.js
+      - name: Validate configurable prize rules
+        run: node scripts/validate-prize-rules.js

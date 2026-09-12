@@ -9,7 +9,7 @@
   var SVG_NS = "http://www.w3.org/2000/svg";
   var $ = function (id) { return document.getElementById(id); };
 
-  var VALID_RULES = ["any", "top", "middle", "bottom", "full"];
+  var VALID_RULES = ["any", "top", "middle", "bottom", "full", "pattern"];
   var state;
   var busy = false;
   var tiles = {};
@@ -20,6 +20,8 @@
   var installPrompt = null;
   var lastFocus = null;
   var prizeDraft = [];
+  var patternPrizeIndex = -1;
+  var patternDraft = [];
   var DATA_OK = validateData();
 
   function defaultPrizes() {
@@ -34,14 +36,20 @@
 
   function clonePrizes(prizes) {
     return (prizes || []).map(function (p) {
-      return { id: p.id, label: p.label, rule: p.rule, count: p.rule === "any" ? p.count : undefined };
+      return {
+        id: p.id,
+        label: p.label,
+        rule: p.rule,
+        count: p.rule === "any" ? p.count : undefined,
+        pattern: p.rule === "pattern" && Array.isArray(p.pattern) ? p.pattern.slice() : undefined
+      };
     });
   }
 
   function freshState(prizes) {
     var now = Date.now();
     return {
-      version: 3,
+      version: 4,
       startedAt: now,
       updatedAt: now,
       called: [],
@@ -86,7 +94,21 @@
     if (prize.rule === "middle") return "All 5 numbers in the middle line";
     if (prize.rule === "bottom") return "All 5 numbers in the bottom line";
     if (prize.rule === "full") return "All 15 numbers on the ticket";
+    if (prize.rule === "pattern") return "All " + prize.pattern.length + " selected positions on the ticket";
     return "";
+  }
+
+  function validPatternKey(key) {
+    return /^[0-2]:[0-4]$/.test(String(key));
+  }
+
+  function normalizePattern(pattern) {
+    var seen = new Set();
+    return (Array.isArray(pattern) ? pattern : []).map(String).filter(function (key) {
+      if (!validPatternKey(key) || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort();
   }
 
   function validateData() {
@@ -147,6 +169,10 @@
     if (rule === "any") {
       var count = parseInt(p.count, 10);
       out.count = count >= 1 && count <= 15 ? count : 5;
+    }
+    if (rule === "pattern") {
+      out.pattern = normalizePattern(p.pattern);
+      if (!out.pattern.length) return null;
     }
     return out;
   }
@@ -235,11 +261,19 @@
           '<h2 id="prizeTitle">Prize setup</h2>' +
           '<p class="dialog-intro">Choose which prizes are available and exactly what makes each claim valid. These settings stay saved on this device.</p>' +
           '<div class="prize-config" id="prizeConfigList"></div>' +
+          '<section class="pattern-editor" id="patternEditor" hidden aria-labelledby="patternEditorTitle">' +
+            '<div class="pattern-editor-head"><div><h3 id="patternEditorTitle">Choose the winning pattern</h3><p>Select every word position that must be cut. The same relative positions are checked on every ticket.</p></div><strong id="patternCount">0 selected</strong></div>' +
+            '<div class="pattern-ticket-scroll"><div class="pattern-ticket" id="patternTicket" aria-label="Selectable sample ticket"></div></div>' +
+            '<p class="pattern-error" id="patternError" role="alert" hidden></p>' +
+            '<div class="pattern-presets"><button class="btn" id="fourCornersBtn" type="button">Select four corners</button><button class="text-btn danger-text" id="clearPatternBtn" type="button">Clear selection</button></div>' +
+            '<div class="pattern-editor-actions"><button class="btn" id="cancelPatternBtn" type="button">Cancel</button><button class="btn btn-primary" id="savePatternBtn" type="button">Use this pattern</button></div>' +
+          '</section>' +
           '<div class="prize-add-actions">' +
             '<button class="btn" id="addPrizeBtn" type="button">Add custom prize</button>' +
             '<button class="btn" id="addFullHouseBtn" type="button">Add another Full House</button>' +
           '</div>' +
-          '<p class="prize-help">For “Any N numbers”, any N called numbers anywhere on that ticket count. Example: Early Five = any 5.</p>' +
+          '<p class="prize-help">For “Any N numbers”, any N called numbers anywhere on that ticket count. For a custom pattern, select the required positions on the sample ticket, such as its four corners.</p>' +
+          '<p class="prize-error" id="prizeSetupError" role="alert" hidden></p>' +
           '<div class="dialog-actions">' +
             '<button class="btn" type="button" data-close>Cancel</button>' +
             '<button class="btn btn-primary" id="savePrizesBtn" type="button">Save prizes</button>' +
@@ -332,7 +366,7 @@
     }
     el.className = "winner-chips";
     el.innerHTML = state.winners.slice(-3).reverse().map(function (w) {
-      return '<button type="button" data-winner-open><b>' + escapeHtml(winnerPrizeLabel(w)) + '</b><span>Ticket ' + w.ticket + (w.player ? " · " + escapeHtml(w.player) : "") + "</span></button>";
+      return '<button type="button" data-winner-open><b>' + escapeHtml(winnerPrizeLabel(w)) + '</b><span>Ticket ' + w.ticket + " · " + (w.player ? escapeHtml(w.player) : "Name needed") + "</span></button>";
     }).join("");
     el.querySelectorAll("[data-winner-open]").forEach(function (b) { b.addEventListener("click", openWinners); });
   }
@@ -471,7 +505,8 @@
   function trapFocus(e) {
     var overlay = dialogOpen();
     if (!overlay || e.key !== "Tab") return;
-    var items = Array.prototype.slice.call(overlay.querySelectorAll("button:not([disabled]):not([hidden]),input:not([disabled]),select:not([disabled]),[href],[tabindex]:not([tabindex='-1'])"));
+    var items = Array.prototype.slice.call(overlay.querySelectorAll("button:not([disabled]):not([hidden]),input:not([disabled]),select:not([disabled]),[href],[tabindex]:not([tabindex='-1'])"))
+      .filter(function (item) { return !item.closest("[hidden]"); });
     if (!items.length) return;
     var first = items[0], last = items[items.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
@@ -510,6 +545,14 @@
     return out;
   }
 
+  function patternTargets(ticketNo, pattern) {
+    var rows = TICKETS[ticketNo - 1].map(function (row) { return row.filter(Boolean); });
+    return normalizePattern(pattern).map(function (key) {
+      var parts = key.split(":");
+      return rows[parseInt(parts[0], 10)][parseInt(parts[1], 10)];
+    }).filter(Boolean);
+  }
+
   function callPosition(n) {
     var idx = state.called.indexOf(n);
     return idx === -1 ? 0 : idx + 1;
@@ -522,6 +565,7 @@
     if (prize.rule === "top") targets = grid[0].filter(Boolean);
     else if (prize.rule === "middle") targets = grid[1].filter(Boolean);
     else if (prize.rule === "bottom") targets = grid[2].filter(Boolean);
+    else if (prize.rule === "pattern") targets = patternTargets(ticketNo, prize.pattern);
     else targets = ticketNumbers(ticketNo);
 
     if (prize.rule === "any") {
@@ -556,14 +600,18 @@
     };
   }
 
-  function ticketHtml(ticketNo) {
+  function ticketHtml(ticketNo, prize) {
     var grid = TICKETS[ticketNo - 1];
     var done = new Set(state.called);
+    var pattern = prize && prize.rule === "pattern" ? new Set(normalizePattern(prize.pattern)) : null;
     var html = '<div class="ticket" aria-label="Ticket ' + ticketNo + '">';
-    grid.forEach(function (row) {
+    grid.forEach(function (row, rowIndex) {
+      var slot = 0;
       row.forEach(function (w) {
+        var key = w ? rowIndex + ":" + slot++ : "";
+        var required = pattern && pattern.has(key);
         html += w
-          ? '<div class="tcell' + (done.has(w) ? " cut" : "") + '"><span>' + escapeHtml(word(w)) + "</span></div>"
+          ? '<div class="tcell' + (done.has(w) ? " cut" : "") + (required ? " pattern-required" : "") + '"><span>' + escapeHtml(word(w)) + "</span></div>"
           : '<div class="tcell empty"></div>';
       });
     });
@@ -590,7 +638,7 @@
     }
 
     var result = evaluateClaim(ticketNo, prize);
-    var html = ticketHtml(ticketNo);
+    var html = ticketHtml(ticketNo, prize);
     var already = awardExists(ticketNo, prize.id);
 
     if (result.valid) {
@@ -599,7 +647,7 @@
       if (already) {
         html += '<p class="already">This prize has already been recorded for Ticket ' + ticketNo + ".</p>";
       } else {
-        html += '<div class="award-box"><label>Player name <span>(optional)</span><input id="playerName" type="text" autocomplete="off" maxlength="60" placeholder="Name"></label><button class="btn btn-primary" id="awardBtn" type="button">Award prize</button></div>';
+        html += '<div class="award-box"><label>Winner name<input id="playerName" type="text" autocomplete="off" maxlength="60" placeholder="Enter winner name" required aria-describedby="winnerNameHelp"><span id="winnerNameHelp">Required for the winner ledger</span></label><button class="btn btn-primary" id="awardBtn" type="button">Award prize</button></div>';
       }
       html += "</section>";
     } else {
@@ -613,11 +661,25 @@
     out.innerHTML = html;
     var awardBtn = $("awardBtn");
     if (awardBtn) awardBtn.addEventListener("click", function () { awardPrize(ticketNo, prize, result.completion); });
+    var playerName = $("playerName");
+    if (playerName) {
+      playerName.addEventListener("input", function () { playerName.classList.remove("input-invalid"); playerName.removeAttribute("aria-invalid"); });
+      playerName.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") awardPrize(ticketNo, prize, result.completion);
+      });
+    }
   }
 
   function awardPrize(ticketNo, prize, completion) {
     if (awardExists(ticketNo, prize.id)) return;
     var player = $("playerName") ? $("playerName").value.trim() : "";
+    if (!player) {
+      $("playerName").classList.add("input-invalid");
+      $("playerName").setAttribute("aria-invalid", "true");
+      $("playerName").focus();
+      $("announce").textContent = "Enter the winner name before awarding the prize.";
+      return;
+    }
     state.winners.push({
       prize: prize.id,
       prizeLabel: prize.label,
@@ -651,7 +713,8 @@
       ["top", "Top line (all 5)"],
       ["middle", "Middle line (all 5)"],
       ["bottom", "Bottom line (all 5)"],
-      ["full", "Full House (all 15)"]
+      ["full", "Full House (all 15)"],
+      ["pattern", "Choose pattern on sample ticket"]
     ];
     return choices.map(function (c) {
       return '<option value="' + c[0] + '"' + (selected === c[0] ? " selected" : "") + ">" + c[1] + "</option>";
@@ -662,18 +725,102 @@
     var out = $("prizeConfigList");
     out.innerHTML = prizeDraft.map(function (p, index) {
       var count = p.rule === "any" ? p.count : 5;
+      var ruleSetting;
+      if (p.rule === "any") {
+        ruleSetting = '<label class="prize-count-label">How many?<input type="number" min="1" max="15" inputmode="numeric" value="' + count + '" data-prize-field="count"></label>';
+      } else if (p.rule === "pattern") {
+        var selected = normalizePattern(p.pattern).length;
+        ruleSetting = '<div class="prize-pattern-cell"><span>Selected pattern</span><button class="btn pattern-open" type="button" data-edit-pattern="' + index + '">Choose cells <small>' + selected + ' selected</small></button></div>';
+      } else {
+        ruleSetting = '<span class="prize-setting-spacer" aria-hidden="true"></span>';
+      }
       return '<div class="prize-config-row" data-prize-index="' + index + '">' +
         '<label class="prize-name-label">Prize name<input type="text" maxlength="60" value="' + escapeHtml(p.label) + '" data-prize-field="label"></label>' +
         '<label class="prize-rule-label">Claim rule<select data-prize-field="rule">' + ruleOptions(p.rule) + "</select></label>" +
-        '<label class="prize-count-label' + (p.rule === "any" ? "" : " is-hidden") + '">How many?<input type="number" min="1" max="15" inputmode="numeric" value="' + count + '" data-prize-field="count"></label>' +
+        ruleSetting +
         '<button class="text-btn danger-text prize-remove" type="button" data-remove-prize="' + index + '">Remove</button>' +
       "</div>";
     }).join("");
   }
 
+  function hidePatternEditor() {
+    $("patternEditor").hidden = true;
+    patternPrizeIndex = -1;
+    patternDraft = [];
+  }
+
+  function renderPatternTicket() {
+    var selected = new Set(patternDraft);
+    var sample = TICKETS[0];
+    var html = "";
+    sample.forEach(function (row, rowIndex) {
+      var slot = 0;
+      row.forEach(function (n) {
+        if (!n) {
+          html += '<div class="pattern-blank" aria-hidden="true"></div>';
+          return;
+        }
+        var key = rowIndex + ":" + slot++;
+        var on = selected.has(key);
+        html += '<button class="pattern-cell' + (on ? " selected" : "") + '" type="button" data-pattern-key="' + key + '" aria-pressed="' + on + '"><small>' + n + '</small><span>' + escapeHtml(word(n)) + "</span></button>";
+      });
+    });
+    $("patternTicket").innerHTML = html;
+    $("patternCount").textContent = patternDraft.length + (patternDraft.length === 1 ? " selected" : " selected");
+  }
+
+  function openPatternEditor(index) {
+    var prize = prizeDraft[index];
+    if (!prize || prize.rule !== "pattern") return;
+    patternPrizeIndex = index;
+    patternDraft = normalizePattern(prize.pattern);
+    $("patternEditorTitle").textContent = "Choose cells for " + (String(prize.label || "").trim() || "this prize");
+    $("patternError").hidden = true;
+    $("patternEditor").hidden = false;
+    renderPatternTicket();
+    $("patternEditor").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    var first = $("patternTicket").querySelector("button");
+    if (first) first.focus();
+  }
+
+  function togglePatternCell(key) {
+    if (!validPatternKey(key)) return;
+    var index = patternDraft.indexOf(key);
+    if (index === -1) patternDraft.push(key);
+    else patternDraft.splice(index, 1);
+    patternDraft = normalizePattern(patternDraft);
+    $("patternError").hidden = true;
+    renderPatternTicket();
+    var active = $("patternTicket").querySelector('[data-pattern-key="' + key + '"]');
+    if (active) active.focus();
+  }
+
+  function useFourCornersPattern() {
+    patternDraft = ["0:0", "0:4", "2:0", "2:4"];
+    $("patternError").hidden = true;
+    renderPatternTicket();
+  }
+
+  function savePatternSelection() {
+    if (patternPrizeIndex < 0 || !prizeDraft[patternPrizeIndex]) return;
+    if (!patternDraft.length) {
+      $("patternError").textContent = "Select at least one word position for this prize.";
+      $("patternError").hidden = false;
+      return;
+    }
+    var index = patternPrizeIndex;
+    prizeDraft[index].pattern = normalizePattern(patternDraft);
+    hidePatternEditor();
+    renderPrizeDraft();
+    var edit = $("prizeConfigList").querySelector('[data-edit-pattern="' + index + '"]');
+    if (edit) edit.focus();
+  }
+
   function openPrizeSetup() {
     if (busy) return;
     prizeDraft = clonePrizes(state.prizes);
+    hidePatternEditor();
+    $("prizeSetupError").hidden = true;
     renderPrizeDraft();
     openDialog("prizeDlg", "[data-prize-field='label']");
   }
@@ -701,28 +848,50 @@
     var index = parseInt(row.getAttribute("data-prize-index"), 10);
     var prize = prizeDraft[index];
     if (!prize) return;
+    $("prizeSetupError").hidden = true;
 
     if (field === "label") prize.label = e.target.value;
     if (field === "rule") {
       prize.rule = e.target.value;
       if (prize.rule === "any" && !(prize.count >= 1 && prize.count <= 15)) prize.count = 5;
+      if (prize.rule === "pattern" && !Array.isArray(prize.pattern)) prize.pattern = [];
       renderPrizeDraft();
+      if (prize.rule === "pattern") openPatternEditor(index);
     }
     if (field === "count") prize.count = parseInt(e.target.value, 10) || 1;
   }
 
   function removeDraftPrize(index) {
+    if (patternPrizeIndex === index) hidePatternEditor();
+    else if (patternPrizeIndex > index) patternPrizeIndex--;
     prizeDraft.splice(index, 1);
     renderPrizeDraft();
   }
 
   function savePrizeSetup() {
+    var invalidIndex = prizeDraft.findIndex(function (p) {
+      return !String(p.label || "").trim() || (p.rule === "pattern" && !normalizePattern(p.pattern).length);
+    });
+    if (invalidIndex !== -1) {
+      var invalid = prizeDraft[invalidIndex];
+      $("prizeSetupError").textContent = !String(invalid.label || "").trim()
+        ? "Every prize needs a name."
+        : "Choose at least one sample-ticket position for " + invalid.label + ".";
+      $("prizeSetupError").hidden = false;
+      if (invalid.rule === "pattern") openPatternEditor(invalidIndex);
+      else {
+        var row = $("prizeConfigList").querySelector('[data-prize-index="' + invalidIndex + '"] input');
+        if (row) row.focus();
+      }
+      return;
+    }
     var normalized = prizeDraft.map(function (p, i) {
       var copy = {
         id: p.id || newPrizeId(),
         label: String(p.label || "").trim(),
         rule: p.rule,
-        count: p.count
+        count: p.count,
+        pattern: p.pattern
       };
       return normalizePrize(copy, i);
     }).filter(Boolean);
@@ -762,8 +931,17 @@
       return;
     }
     out.innerHTML = '<div class="ledger">' + state.winners.map(function (w, i) {
-      return '<div class="ledger-row"><div><b>' + escapeHtml(winnerPrizeLabel(w)) + '</b><span>Ticket ' + w.ticket + (w.player ? " · " + escapeHtml(w.player) : "") + '</span></div><div><span>Completed #' + (w.completedAtCall || "?") + '</span><button class="text-btn danger-text" type="button" data-remove-award="' + i + '">Remove</button></div></div>';
+      return '<div class="ledger-row"><div class="ledger-summary"><b>' + escapeHtml(winnerPrizeLabel(w)) + '</b><span>Ticket ' + w.ticket + ' · Completed #' + (w.completedAtCall || "?") + '</span></div><div class="ledger-winner"><label><span>Winner name</span><input type="text" maxlength="60" autocomplete="off" value="' + escapeHtml(w.player || "") + '" placeholder="Enter winner name" data-winner-name="' + i + '" required></label><div class="ledger-actions"><button class="btn ledger-save" type="button" data-save-winner="' + i + '">Save name</button><button class="text-btn danger-text" type="button" data-remove-award="' + i + '">Remove</button></div></div></div>';
     }).join("") + "</div>";
+    out.querySelectorAll("[data-save-winner]").forEach(function (btn) {
+      btn.addEventListener("click", function () { updateWinnerName(parseInt(btn.getAttribute("data-save-winner"), 10)); });
+    });
+    out.querySelectorAll("[data-winner-name]").forEach(function (input) {
+      input.addEventListener("input", function () { input.classList.remove("input-invalid"); input.removeAttribute("aria-invalid"); });
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") updateWinnerName(parseInt(input.getAttribute("data-winner-name"), 10));
+      });
+    });
     out.querySelectorAll("[data-remove-award]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var idx = parseInt(btn.getAttribute("data-remove-award"), 10);
@@ -773,6 +951,25 @@
         renderWinnerLedger();
       });
     });
+  }
+
+  function updateWinnerName(index) {
+    var winner = state.winners[index];
+    var input = $("winnerLedger").querySelector('[data-winner-name="' + index + '"]');
+    if (!winner || !input) return;
+    var name = input.value.trim();
+    if (!name) {
+      input.classList.add("input-invalid");
+      input.setAttribute("aria-invalid", "true");
+      input.focus();
+      $("announce").textContent = "Enter the winner name before saving.";
+      return;
+    }
+    winner.player = name;
+    save();
+    renderWinnersMini();
+    renderWinnerLedger();
+    $("announce").textContent = "Winner name saved for " + winnerPrizeLabel(winner) + ".";
   }
 
   function openWinners() {
@@ -913,9 +1110,22 @@
   $("addPrizeBtn").addEventListener("click", addCustomPrize);
   $("addFullHouseBtn").addEventListener("click", addFullHousePrize);
   $("savePrizesBtn").addEventListener("click", savePrizeSetup);
+  $("fourCornersBtn").addEventListener("click", useFourCornersPattern);
+  $("clearPatternBtn").addEventListener("click", function () { patternDraft = []; renderPatternTicket(); });
+  $("cancelPatternBtn").addEventListener("click", hidePatternEditor);
+  $("savePatternBtn").addEventListener("click", savePatternSelection);
+  $("patternTicket").addEventListener("click", function (e) {
+    var cell = e.target.closest("[data-pattern-key]");
+    if (cell) togglePatternCell(cell.getAttribute("data-pattern-key"));
+  });
   $("prizeConfigList").addEventListener("input", handlePrizeDraftInput);
   $("prizeConfigList").addEventListener("change", handlePrizeDraftInput);
   $("prizeConfigList").addEventListener("click", function (e) {
+    var edit = e.target.closest("[data-edit-pattern]");
+    if (edit) {
+      openPatternEditor(parseInt(edit.getAttribute("data-edit-pattern"), 10));
+      return;
+    }
     var btn = e.target.closest("[data-remove-prize]");
     if (!btn) return;
     removeDraftPrize(parseInt(btn.getAttribute("data-remove-prize"), 10));
