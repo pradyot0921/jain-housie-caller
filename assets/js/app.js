@@ -26,11 +26,11 @@
 
   function defaultPrizes() {
     return [
-      { id: "early5", label: "Early Five", rule: "any", count: 5 },
-      { id: "top", label: "Top Line", rule: "top" },
-      { id: "middle", label: "Middle Line", rule: "middle" },
-      { id: "bottom", label: "Bottom Line", rule: "bottom" },
-      { id: "full", label: "Full House", rule: "full" }
+      { id: "early5", label: "Early Five", rule: "any", count: 5, maxWinners: 1 },
+      { id: "top", label: "Top Line", rule: "top", maxWinners: 1 },
+      { id: "middle", label: "Middle Line", rule: "middle", maxWinners: 1 },
+      { id: "bottom", label: "Bottom Line", rule: "bottom", maxWinners: 1 },
+      { id: "full", label: "Full House", rule: "full", maxWinners: 1 }
     ];
   }
 
@@ -40,6 +40,7 @@
         id: p.id,
         label: p.label,
         rule: p.rule,
+        maxWinners: p.maxWinners || 1,
         count: p.rule === "any" ? p.count : undefined,
         pattern: p.rule === "pattern" && Array.isArray(p.pattern) ? p.pattern.slice() : undefined
       };
@@ -49,7 +50,7 @@
   function freshState(prizes) {
     var now = Date.now();
     return {
-      version: 4,
+      version: 5,
       startedAt: now,
       updatedAt: now,
       called: [],
@@ -85,6 +86,18 @@
 
   function winnerPrizeLabel(winner) {
     return winner.prizeLabel || prizeLabel(winner.prize);
+  }
+
+  function prizeWinnerCount(prizeId) {
+    return state.winners.filter(function (winner) { return winner.prize === prizeId; }).length;
+  }
+
+  function prizeIsClosed(prize) {
+    return prizeWinnerCount(prize.id) >= (prize.maxWinners || 1);
+  }
+
+  function hasOpenPrizes() {
+    return state.prizes.some(function (prize) { return !prizeIsClosed(prize); });
   }
 
   function ruleLabel(prize) {
@@ -166,6 +179,8 @@
     var id = String(p.id || ("prize-" + index)).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
     if (!id) id = "prize-" + index;
     var out = { id: id, label: label, rule: rule };
+    var maxWinners = parseInt(p.maxWinners, 10);
+    out.maxWinners = maxWinners >= 1 && maxWinners <= 20 ? maxWinners : 1;
     if (rule === "any") {
       var count = parseInt(p.count, 10);
       out.count = count >= 1 && count <= 15 ? count : 5;
@@ -258,11 +273,12 @@
       var wrap = document.createElement("div");
       wrap.innerHTML = '<div class="overlay" id="prizeDlg" role="dialog" aria-modal="true" aria-labelledby="prizeTitle" aria-hidden="true">' +
         '<div class="dialog prize-dialog">' +
+        '<div class="dialog-scroll">' +
           '<h2 id="prizeTitle">Prize setup</h2>' +
           '<p class="dialog-intro">Choose which prizes are available and exactly what makes each claim valid. These settings stay saved on this device.</p>' +
           '<div class="prize-config" id="prizeConfigList"></div>' +
           '<section class="pattern-editor" id="patternEditor" hidden aria-labelledby="patternEditorTitle">' +
-            '<div class="pattern-editor-head"><div><h3 id="patternEditorTitle">Choose the winning pattern</h3><p>Select every word position that must be cut. The same relative positions are checked on every ticket.</p></div><strong id="patternCount">0 selected</strong></div>' +
+            '<div class="pattern-editor-head"><div><h3 id="patternEditorTitle">Choose the winning pattern</h3><p>Positions follow the five filled words in each row, not their printed columns. A corner in column 1 or 9 on another ticket will still match correctly.</p></div><strong id="patternCount">0 selected</strong></div>' +
             '<div class="pattern-ticket-scroll"><div class="pattern-ticket" id="patternTicket" aria-label="Selectable sample ticket"></div></div>' +
             '<p class="pattern-error" id="patternError" role="alert" hidden></p>' +
             '<div class="pattern-presets"><button class="btn" id="fourCornersBtn" type="button">Select four corners</button><button class="text-btn danger-text" id="clearPatternBtn" type="button">Clear selection</button></div>' +
@@ -272,12 +288,13 @@
             '<button class="btn" id="addPrizeBtn" type="button">Add custom prize</button>' +
             '<button class="btn" id="addFullHouseBtn" type="button">Add another Full House</button>' +
           '</div>' +
-          '<p class="prize-help">For “Any N numbers”, any N called numbers anywhere on that ticket count. For a custom pattern, select the required positions on the sample ticket, such as its four corners.</p>' +
+          '<p class="prize-help">Set “Winners allowed” to 1 for a single winner, or increase it for ties. Once all winner places are filled, that prize closes automatically. Four Corners always means the first and last filled word in the top and bottom rows.</p>' +
           '<p class="prize-error" id="prizeSetupError" role="alert" hidden></p>' +
           '<div class="dialog-actions">' +
             '<button class="btn" type="button" data-close>Cancel</button>' +
             '<button class="btn btn-primary" id="savePrizesBtn" type="button">Save prizes</button>' +
           '</div>' +
+        '</div>' +
         '</div>' +
       '</div>';
       document.body.appendChild(wrap.firstElementChild);
@@ -407,7 +424,7 @@
     $("drawLabel").textContent = finished ? "All " + TOTAL + " words called" : "Draw next word";
     $("mobileDrawBtn").textContent = finished ? "Done" : busy ? "Drawing…" : "Draw";
     $("undoBtn").hidden = busy || state.called.length === 0;
-    $("checkBtn").disabled = busy || !DATA_OK || !state.prizes.length;
+    $("checkBtn").disabled = busy || !DATA_OK || !hasOpenPrizes();
     $("newBtn").disabled = busy || state.called.length === 0;
     if ($("prizeSetupBtn")) $("prizeSetupBtn").disabled = busy;
 
@@ -531,12 +548,22 @@
     try { sessionStorage.setItem(TAB_KEY, "1"); } catch (e) {}
   }
 
-  function buildPrizeOptions() {
+  function buildPrizeOptions(preferredId) {
     var select = $("prizeType");
-    if (!select) return;
+    if (!select) return 0;
+    var previous = select.value;
+    var openCount = 0;
     select.innerHTML = state.prizes.map(function (p) {
-      return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.label) + "</option>";
+      var closed = prizeIsClosed(p);
+      if (!closed) openCount++;
+      return '<option value="' + escapeHtml(p.id) + '"' + (closed ? " disabled" : "") + '>' + escapeHtml(p.label) + (closed ? " — complete" : "") + "</option>";
     }).join("");
+    var desired = preferredId || previous;
+    var previousOption = Array.prototype.find.call(select.options, function (option) { return option.value === desired && (!option.disabled || preferredId); });
+    var firstOpen = Array.prototype.find.call(select.options, function (option) { return !option.disabled; });
+    if (previousOption) select.value = desired;
+    else if (firstOpen) select.value = firstOpen.value;
+    return openCount;
   }
 
   function ticketNumbers(ticketNo) {
@@ -637,9 +664,15 @@
       return;
     }
 
-    var result = evaluateClaim(ticketNo, prize);
     var html = ticketHtml(ticketNo, prize);
     var already = awardExists(ticketNo, prize.id);
+    if (prizeIsClosed(prize) && !already) {
+      html += '<section class="claim-result complete"><span class="result-kicker">Prize complete</span><h3>' + escapeHtml(prize.label) + '</h3><p>All ' + (prize.maxWinners || 1) + ' winner place' + ((prize.maxWinners || 1) === 1 ? " is" : "s are") + ' already filled. Increase “Winners allowed” in Prize setup only if another tied winner should be accepted.</p></section>';
+      out.innerHTML = html;
+      return;
+    }
+
+    var result = evaluateClaim(ticketNo, prize);
 
     if (result.valid) {
       var finalWord = state.called[result.completion - 1];
@@ -647,7 +680,8 @@
       if (already) {
         html += '<p class="already">This prize has already been recorded for Ticket ' + ticketNo + ".</p>";
       } else {
-        html += '<div class="award-box"><label>Winner name<input id="playerName" type="text" autocomplete="off" maxlength="60" placeholder="Enter winner name" required aria-describedby="winnerNameHelp"><span id="winnerNameHelp">Required for the winner ledger</span></label><button class="btn btn-primary" id="awardBtn" type="button">Award prize</button></div>';
+        var winnerNumber = prizeWinnerCount(prize.id) + 1;
+        html += '<div class="award-box"><label>Winner name<input id="playerName" type="text" autocomplete="off" maxlength="60" placeholder="Enter winner name" required aria-describedby="winnerNameHelp"><span id="winnerNameHelp">Winner ' + winnerNumber + ' of ' + (prize.maxWinners || 1) + ' · required for the ledger</span></label><button class="btn btn-primary" id="awardBtn" type="button">Award prize</button></div>';
       }
       html += "</section>";
     } else {
@@ -671,7 +705,7 @@
   }
 
   function awardPrize(ticketNo, prize, completion) {
-    if (awardExists(ticketNo, prize.id)) return;
+    if (awardExists(ticketNo, prize.id) || prizeIsClosed(prize)) return;
     var player = $("playerName") ? $("playerName").value.trim() : "";
     if (!player) {
       $("playerName").classList.add("input-invalid");
@@ -689,17 +723,17 @@
       awardedAt: Date.now()
     });
     save();
-    renderWinnersMini();
+    buildPrizeOptions(prize.id);
+    render();
     verifyClaim();
     $("announce").textContent = prize.label + " awarded to Ticket " + ticketNo + ".";
   }
 
   function openClaim() {
-    if (busy || !DATA_OK || !state.prizes.length) return;
+    if (busy || !DATA_OK || !hasOpenPrizes()) return;
     buildPrizeOptions();
     $("ticketOut").innerHTML = "";
     $("ticketNo").value = "";
-    $("prizeType").selectedIndex = 0;
     openDialog("checkDlg", "#ticketNo");
   }
 
@@ -734,10 +768,12 @@
       } else {
         ruleSetting = '<span class="prize-setting-spacer" aria-hidden="true"></span>';
       }
+      var awarded = prizeWinnerCount(p.id);
       return '<div class="prize-config-row" data-prize-index="' + index + '">' +
         '<label class="prize-name-label">Prize name<input type="text" maxlength="60" value="' + escapeHtml(p.label) + '" data-prize-field="label"></label>' +
         '<label class="prize-rule-label">Claim rule<select data-prize-field="rule">' + ruleOptions(p.rule) + "</select></label>" +
         ruleSetting +
+        '<label class="prize-winner-label">Winners allowed<input type="number" min="1" max="20" inputmode="numeric" value="' + (p.maxWinners || 1) + '" data-prize-field="maxWinners"><span>' + (awarded ? awarded + " already awarded" : "Default: 1") + '</span></label>' +
         '<button class="text-btn danger-text prize-remove" type="button" data-remove-prize="' + index + '">Remove</button>' +
       "</div>";
     }).join("");
@@ -754,19 +790,17 @@
     var sample = TICKETS[0];
     var html = "";
     sample.forEach(function (row, rowIndex) {
-      var slot = 0;
-      row.forEach(function (n) {
-        if (!n) {
-          html += '<div class="pattern-blank" aria-hidden="true"></div>';
-          return;
-        }
-        var key = rowIndex + ":" + slot++;
+      var rowNames = ["Top row", "Middle row", "Bottom row"];
+      html += '<div class="pattern-row"><b>' + rowNames[rowIndex] + '</b>';
+      row.filter(Boolean).forEach(function (n, slot) {
+        var key = rowIndex + ":" + slot;
         var on = selected.has(key);
         html += '<button class="pattern-cell' + (on ? " selected" : "") + '" type="button" data-pattern-key="' + key + '" aria-pressed="' + on + '"><small>' + n + '</small><span>' + escapeHtml(word(n)) + "</span></button>";
       });
+      html += "</div>";
     });
     $("patternTicket").innerHTML = html;
-    $("patternCount").textContent = patternDraft.length + (patternDraft.length === 1 ? " selected" : " selected");
+    $("patternCount").textContent = patternDraft.length + " selected";
   }
 
   function openPatternEditor(index) {
@@ -826,7 +860,7 @@
   }
 
   function addCustomPrize() {
-    prizeDraft.push({ id: newPrizeId(), label: "New Prize", rule: "any", count: 5 });
+    prizeDraft.push({ id: newPrizeId(), label: "New Prize", rule: "any", count: 5, maxWinners: 1 });
     renderPrizeDraft();
     var rows = $("prizeConfigList").querySelectorAll(".prize-config-row");
     var last = rows[rows.length - 1];
@@ -837,7 +871,7 @@
     var fulls = prizeDraft.filter(function (p) { return p.rule === "full"; });
     if (fulls.length === 1 && /^Full House$/i.test(fulls[0].label)) fulls[0].label = "Full House 1";
     var next = fulls.length + 1;
-    prizeDraft.push({ id: newPrizeId(), label: "Full House " + next, rule: "full" });
+    prizeDraft.push({ id: newPrizeId(), label: "Full House " + next, rule: "full", maxWinners: 1 });
     renderPrizeDraft();
   }
 
@@ -859,6 +893,7 @@
       if (prize.rule === "pattern") openPatternEditor(index);
     }
     if (field === "count") prize.count = parseInt(e.target.value, 10) || 1;
+    if (field === "maxWinners") prize.maxWinners = parseInt(e.target.value, 10) || 1;
   }
 
   function removeDraftPrize(index) {
@@ -870,18 +905,25 @@
 
   function savePrizeSetup() {
     var invalidIndex = prizeDraft.findIndex(function (p) {
-      return !String(p.label || "").trim() || (p.rule === "pattern" && !normalizePattern(p.pattern).length);
+      var awarded = prizeWinnerCount(p.id);
+      return !String(p.label || "").trim() ||
+        (p.rule === "pattern" && !normalizePattern(p.pattern).length) ||
+        !(p.maxWinners >= 1 && p.maxWinners <= 20) ||
+        p.maxWinners < awarded;
     });
     if (invalidIndex !== -1) {
       var invalid = prizeDraft[invalidIndex];
-      $("prizeSetupError").textContent = !String(invalid.label || "").trim()
-        ? "Every prize needs a name."
-        : "Choose at least one sample-ticket position for " + invalid.label + ".";
+      var awarded = prizeWinnerCount(invalid.id);
+      if (!String(invalid.label || "").trim()) $("prizeSetupError").textContent = "Every prize needs a name.";
+      else if (invalid.rule === "pattern" && !normalizePattern(invalid.pattern).length) $("prizeSetupError").textContent = "Choose at least one sample-ticket position for " + invalid.label + ".";
+      else if (invalid.maxWinners < awarded) $("prizeSetupError").textContent = invalid.label + " already has " + awarded + " winners. Winners allowed cannot be lower than that.";
+      else $("prizeSetupError").textContent = "Winners allowed must be between 1 and 20.";
       $("prizeSetupError").hidden = false;
-      if (invalid.rule === "pattern") openPatternEditor(invalidIndex);
+      if (invalid.rule === "pattern" && !normalizePattern(invalid.pattern).length) openPatternEditor(invalidIndex);
       else {
-        var row = $("prizeConfigList").querySelector('[data-prize-index="' + invalidIndex + '"] input');
-        if (row) row.focus();
+        var field = !String(invalid.label || "").trim() ? "label" : "maxWinners";
+        var input = $("prizeConfigList").querySelector('[data-prize-index="' + invalidIndex + '"] [data-prize-field="' + field + '"]');
+        if (input) input.focus();
       }
       return;
     }
@@ -891,7 +933,8 @@
         label: String(p.label || "").trim(),
         rule: p.rule,
         count: p.count,
-        pattern: p.pattern
+        pattern: p.pattern,
+        maxWinners: p.maxWinners
       };
       return normalizePrize(copy, i);
     }).filter(Boolean);
@@ -931,7 +974,10 @@
       return;
     }
     out.innerHTML = '<div class="ledger">' + state.winners.map(function (w, i) {
-      return '<div class="ledger-row"><div class="ledger-summary"><b>' + escapeHtml(winnerPrizeLabel(w)) + '</b><span>Ticket ' + w.ticket + ' · Completed #' + (w.completedAtCall || "?") + '</span></div><div class="ledger-winner"><label><span>Winner name</span><input type="text" maxlength="60" autocomplete="off" value="' + escapeHtml(w.player || "") + '" placeholder="Enter winner name" data-winner-name="' + i + '" required></label><div class="ledger-actions"><button class="btn ledger-save" type="button" data-save-winner="' + i + '">Save name</button><button class="text-btn danger-text" type="button" data-remove-award="' + i + '">Remove</button></div></div></div>';
+      var slot = state.winners.slice(0, i + 1).filter(function (candidate) { return candidate.prize === w.prize; }).length;
+      var prize = state.prizes.find(function (candidate) { return candidate.id === w.prize; });
+      var limit = prize ? prize.maxWinners || 1 : slot;
+      return '<div class="ledger-row"><div class="ledger-summary"><b>' + escapeHtml(winnerPrizeLabel(w)) + '</b><span>Winner ' + slot + ' of ' + limit + ' · Ticket ' + w.ticket + ' · Completed #' + (w.completedAtCall || "?") + '</span></div><div class="ledger-winner"><label><span>Winner name</span><input type="text" maxlength="60" autocomplete="off" value="' + escapeHtml(w.player || "") + '" placeholder="Enter winner name" data-winner-name="' + i + '" required></label><div class="ledger-actions"><button class="btn ledger-save" type="button" data-save-winner="' + i + '">Save name</button><button class="text-btn danger-text" type="button" data-remove-award="' + i + '">Remove</button></div></div></div>';
     }).join("") + "</div>";
     out.querySelectorAll("[data-save-winner]").forEach(function (btn) {
       btn.addEventListener("click", function () { updateWinnerName(parseInt(btn.getAttribute("data-save-winner"), 10)); });
@@ -947,7 +993,8 @@
         var idx = parseInt(btn.getAttribute("data-remove-award"), 10);
         state.winners.splice(idx, 1);
         save();
-        renderWinnersMini();
+        buildPrizeOptions();
+        render();
         renderWinnerLedger();
       });
     });

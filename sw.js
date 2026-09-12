@@ -1,4 +1,4 @@
-const CACHE = "jain-housie-v2-3";
+const CACHE = "jain-housie-v2-4";
 const CORE = [
   "./",
   "./index.html",
