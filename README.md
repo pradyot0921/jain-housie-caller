@@ -7,8 +7,9 @@ A dependency-free website for hosting Jain Word Housie. It draws the 90 words at
 - **Draw next word** chooses a random word that has not been called. Spacebar works too.
 - **Board** shows all 90 words, highlights the latest call and strikes off previous calls.
 - **Undo last draw** removes the latest call. Awards that depended on that call are also removed.
-- **Claim verifier** checks Early Five, Top Line, Middle Line, Bottom Line and Full House from the exact call order.
-- **Winner ledger** records the prize, ticket, optional player name and completion call. The same ticket/prize cannot be awarded twice, while ties across different tickets are allowed.
+- **Claim verifier** checks Early Five, Top Line, Middle Line, Bottom Line, Full House and host-defined patterns from the exact call order.
+- **Custom pattern prizes** let the host select required positions on a sample ticket, including a one-click Four Corners preset. Those relative positions are then checked correctly on every ticket.
+- **Winner ledger** requires a winner name when a prize is awarded and lets the host edit that name later. It records the prize, ticket and completion call. The same ticket/prize cannot be awarded twice, while ties across different tickets are allowed.
 - **Call history** lists every called word in order, with timestamps for new V2 calls.
 - **Print tickets** generates all 40 paper tickets directly from `assets/js/data.js`, so printed tickets and the checker share one source of truth.
 - **Host tools** include fullscreen mode, Screen Wake Lock where supported, install-to-device support and offline caching.
@@ -25,6 +26,7 @@ Run it locally with:
 
 ```bash
 node scripts/validate-data.js
+node scripts/validate-prize-rules.js
 ```
 
 ## Files
@@ -41,6 +43,7 @@ assets/
   favicon.svg
 scripts/
   validate-data.js
+  validate-prize-rules.js
 .github/workflows/
   validate.yml
 netlify.toml
